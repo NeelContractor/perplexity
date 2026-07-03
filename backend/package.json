@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.50",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "bun run --watch src/index.ts",
+    "prisma": "prisma"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "elysia": "latest",
+    "@tavily/core": "^0.7.6",
+    "dotenv": "^17.4.2",
+    "openai": "^6.44.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "bun-types": "latest",
+    "prisma": "^7.8.0",
+    "typescript": "^6.0.3"
+  },
+  "module": "src/index.js"
+}
