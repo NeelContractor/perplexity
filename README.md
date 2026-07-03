@@ -5,3 +5,10 @@ A Perplexity-style AI search application. Ask a question, get a streamed answer 
 <p align="center">
   <img src="https://github.com/NeelContractor/perplexity/blob/main/architecture.png" alt="Memoria" width="900">
 </p>
+
+# Tech Stach
+- Frontend - ReactJs
+- Backend - ElysiaJs
+- LLM - OpenRouter (GPT Model free)
+- DateBase, Auth - Supabase 
+- Web Search - Tavily
