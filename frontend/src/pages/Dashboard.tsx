@@ -1,4 +1,6 @@
 import type { FormEvent } from "react"
+import { flushSync } from "react-dom"
+import { createParser, type EventSourceMessage } from "eventsource-parser";
 import type { User } from "@supabase/supabase-js"
 import { useEffect, useRef, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
@@ -113,19 +115,42 @@ function getFavicon(url: string): string {
 // ─── Markdown-lite renderer ───────────────────────────────────────────────────
 // Renders **bold**, *italic*, `code`, and newlines — lightweight, no dep needed
 
-function renderMarkdown(text: string) {
+function renderMarkdown(text: string, sources?: Source[]) {
   const lines = text.split("\n")
   return lines.map((line, i) => {
-    // Parse inline: **bold**, *italic*, `code`
     const parts: React.ReactNode[] = []
-    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g
+    // Added citation patterns: [1] and 【1】
+    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(\d+)\]|【(\d+)】)/g
     let last = 0
     let match
     while ((match = regex.exec(line)) !== null) {
       if (match.index > last) parts.push(line.slice(last, match.index))
-      if (match[2]) parts.push(<strong key={match.index}>{match[2]}</strong>)
-      else if (match[3]) parts.push(<em key={match.index}>{match[3]}</em>)
-      else if (match[4]) parts.push(<code key={match.index} className="inline-code">{match[4]}</code>)
+      if (match[2]) {
+        parts.push(<strong key={match.index}>{match[2]}</strong>)
+      } else if (match[3]) {
+        parts.push(<em key={match.index}>{match[3]}</em>)
+      } else if (match[4]) {
+        parts.push(<code key={match.index} className="inline-code">{match[4]}</code>)
+      } else if (match[5] || match[6]) {
+        const num = parseInt(match[5] || match[6] || "0", 10)
+        const source = sources?.[num - 1]
+        const href = source?.url || source?.link
+        parts.push(
+          href ? (
+            <a
+              key={match.index}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="citation-link"
+            >
+              [{num}]
+            </a>
+          ) : (
+            <span key={match.index} className="citation-link citation-link-disabled">[{num}]</span>
+          )
+        )
+      }
       last = match.index + match[0].length
     }
     if (last < line.length) parts.push(line.slice(last))
@@ -136,6 +161,117 @@ function renderMarkdown(text: string) {
       </span>
     )
   })
+}
+
+function renderInline(line: string, sources?: Source[], keyPrefix: string | number = 0) {
+  const parts: React.ReactNode[] = []
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(\d+)\]|【(\d+)】)/g
+  let last = 0
+  let match
+  let i = 0
+  while ((match = regex.exec(line)) !== null) {
+    if (match.index > last) parts.push(line.slice(last, match.index))
+    const key = `${keyPrefix}-${i++}`
+    if (match[2]) {
+      parts.push(<strong key={key}>{match[2]}</strong>)
+    } else if (match[3]) {
+      parts.push(<em key={key}>{match[3]}</em>)
+    } else if (match[4]) {
+      parts.push(<code key={key} className="inline-code">{match[4]}</code>)
+    } else if (match[5] || match[6]) {
+      const num = parseInt(match[5] || match[6] || "0", 10)
+      const source = sources?.[num - 1]
+      const href = source?.url || source?.link
+      parts.push(
+        href ? (
+          <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="citation-link">
+            [{num}]
+          </a>
+        ) : (
+          <span key={key} className="citation-link citation-link-disabled">[{num}]</span>
+        )
+      )
+    }
+    last = match.index + match[0].length
+  }
+  if (last < line.length) parts.push(line.slice(last))
+  return parts.length ? parts : [line]
+}
+
+function renderRichContent(text: string, sources?: Source[]) {
+  const blocks: React.ReactNode[] = []
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  let blockKey = 0
+
+  const renderTextChunk = (chunk: string, key: number) => {
+    const lines = chunk.split("\n")
+    const elements: React.ReactNode[] = []
+    let listBuffer: string[] = []
+
+    const flushList = () => {
+      if (listBuffer.length > 0) {
+        elements.push(
+          <ul className="md-list" key={`list-${key}-${elements.length}`}>
+            {listBuffer.map((item, li) => (
+              <li key={li}>{renderInline(item, sources, `${key}-${elements.length}-${li}`)}</li>
+            ))}
+          </ul>
+        )
+        listBuffer = []
+      }
+    }
+
+    lines.forEach((line, li) => {
+      const trimmed = line.trim()
+      const bulletMatch = trimmed.match(/^[-*]\s+(.*)/)
+      if (bulletMatch) {
+        listBuffer.push(bulletMatch[1] ?? "")
+        return
+      }
+      flushList()
+      if (trimmed === "") {
+        elements.push(<div key={`sp-${key}-${li}`} style={{ height: 6 }} />)
+      } else if (/^#{1,3}\s+/.test(trimmed)) {
+        const headingText = trimmed.replace(/^#{1,3}\s+/, "")
+        elements.push(
+          <h4 className="md-heading" key={`h-${key}-${li}`}>
+            {renderInline(headingText, sources, `${key}-${li}`)}
+          </h4>
+        )
+      } else {
+        elements.push(
+          <p className="md-para" key={`p-${key}-${li}`}>
+            {renderInline(line, sources, `${key}-${li}`)}
+          </p>
+        )
+      }
+    })
+    flushList()
+    return elements
+  }
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    const m = match
+    if (m.index > lastIndex) {
+      blocks.push(...renderTextChunk(text.slice(lastIndex, m.index), blockKey++))
+    }
+    const lang = m[1] ?? ""
+    const code = (m[2] ?? "").replace(/\n$/, "")
+    blocks.push(
+      <pre className="md-code-block" key={`code-${blockKey++}`}>
+        {lang && <div className="md-code-lang">{lang}</div>}
+        <code>{code}</code>
+      </pre>
+    )
+    lastIndex = codeBlockRegex.lastIndex
+  }
+  if (lastIndex < text.length) {
+    blocks.push(...renderTextChunk(text.slice(lastIndex), blockKey++))
+  }
+
+  return blocks
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -154,11 +290,25 @@ const Dashboard = () => {
   const [followups, setFollowups] = useState<string[]>([])
   const [loadingFollowups, setLoadingFollowups] = useState(false)
   const [activeConvId, setActiveConvId] = useState<string | null>(null)
+  const [sourcesVisible, setSourcesVisible] = useState(true)
 
   const supabase = createClient()
   const navigate = useNavigate()
+  // const bottomRef = useRef<HTMLDivElement>(null)
+  // const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const streamedTextRef = useRef("")
+  const animationFrameRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+          cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [])
 
   // ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -192,9 +342,15 @@ const Dashboard = () => {
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────────
 
+  // useEffect(() => {
+  //   bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  // }, [messages])
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    bottomRef.current?.scrollIntoView({
+        behavior: isSubmitting ? "instant" : "smooth",
+        block: "end",
+    })
+  }, [messages, isSubmitting])
 
   // ── Textarea auto-resize ─────────────────────────────────────────────────────
 
@@ -332,62 +488,106 @@ const Dashboard = () => {
       let newConvId: string | null = null
       let streamedSources: Source[] = []
 
-      setMessages(prev => [...prev, { role: "assistant", content: "" }])
+      // setMessages(prev => [...prev, { role: "assistant", content: "" }])
+      streamedTextRef.current = ""
+
+      flushSync(() => {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "",
+          },
+        ])
+      })
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          // flush whatever's left in buffer as a final event, if it looks complete
+          if (buffer.trim()) {
+            const lines = buffer.split("\n")
+            const eventLine = lines.find(l => l.startsWith("event:"))
+            const dataLine = lines.find(l => l.startsWith("data:"))
+            if (eventLine && dataLine) {
+              const eventName = eventLine.replace("event:", "").trim()
+              try {
+                const eventData = JSON.parse(dataLine.replace("data:", "").trim())
+                if (eventName === "delta") {
+                  assistantText += eventData.text
+                  streamedTextRef.current = assistantText
+                }
+                if (eventName === "sources") streamedSources = eventData.sources
+              } catch { /* ignore malformed trailing chunk */ }
+            }
+          }
+          break
+        }
+      
         buffer += decoder.decode(value, { stream: true })
-
         const parts = buffer.split("\n\n")
         buffer = parts.pop() ?? ""
-
+      
         for (const part of parts) {
           const lines = part.split("\n")
           const eventLine = lines.find(l => l.startsWith("event:"))
           const dataLine = lines.find(l => l.startsWith("data:"))
           if (!eventLine || !dataLine) continue
-
+      
           const eventName = eventLine.replace("event:", "").trim()
           const eventData = JSON.parse(dataLine.replace("data:", "").trim())
-
+      
+          // console.log("delta received", eventData.text)
           if (eventName === "delta") {
             assistantText += eventData.text
-            setMessages(prev => {
-              const next = [...prev]
-              const last = next[next.length - 1]
-              if (!last || last.role !== "assistant") return prev
-              next[next.length - 1] = { ...last, content: assistantText }
-              return next
+            streamedTextRef.current = assistantText
+          
+            flushSync(() => {
+              setMessages(prev => {
+                const next = [...prev]
+                const lastIndex = next.length - 1
+                if (lastIndex < 0) return prev
+                const last = next[lastIndex]
+                if (!last || last.role !== "assistant") return prev
+                next[lastIndex] = { role: last.role, content: streamedTextRef.current, sources: last.sources }
+                return next
+              })
             })
-          }
-
+          }        
+          
           if (eventName === "sources") {
             streamedSources = eventData.sources
             setCurrentSources(eventData.sources)
           }
-
+          
           if (eventName === "conversation") {
             newConvId = eventData.conversationId
             setConversationId(eventData.conversationId)
             setActiveConvId(eventData.conversationId)
           }
-
+          
           if (eventName === "error") {
             throw new Error(eventData.message || "Backend error")
           }
         }
       }
-
-      // Update message with sources
-      setMessages(prev => {
-        const next = [...prev]
-        const last = next[next.length - 1]
-        if (last?.role === "assistant") {
-          next[next.length - 1] = { ...last, sources: streamedSources }
-        }
-        return next
-      })
+      
+      // Cancel any pending rAF and force-render the final text immediately,
+      // so the UI never ends up one delta behind what actually streamed.
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      flushSync(() => {
+        setMessages(prev => {
+          const next = [...prev]
+          const lastIndex = next.length - 1
+          const last = next[lastIndex]
+          if (!last || last.role !== "assistant") return prev
+          next[lastIndex] = { role: last.role, content: assistantText, sources: streamedSources }
+          return next
+        })
+      })     
 
       // Refresh sidebar + fetch followups
       await fetchConversations()
@@ -453,7 +653,7 @@ const Dashboard = () => {
               <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
               <circle cx="16" cy="16" r="2.5" fill="#fff" />
             </svg>
-            <span className="sidebar-logo-label">Purplexity</span>
+            <span className="sidebar-logo-label">Perplexity</span>
           </div>
           <button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Close sidebar">
             <IconX />
@@ -527,7 +727,7 @@ const Dashboard = () => {
                 <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
                 <circle cx="16" cy="16" r="2.5" fill="#fff" />
               </svg>
-              <span>Purplexity</span>
+              <span>Perplexity</span>
             </div>
           )}
           <div style={{ flex: 1 }} />
@@ -602,6 +802,49 @@ const Dashboard = () => {
             /* ── Chat view ── */
             <div className="chat-layout">
               <div className="chat-main">
+              {/* {currentSources.length > 0 && (
+                <>
+                  <button
+                    className="sources-toggle-btn"
+                    onClick={() => setSourcesVisible(v => !v)}
+                  >
+                    <IconGlobe />
+                    <span>Sources</span>
+                    <span className="sources-count-badge">{currentSources.length}</span>
+                    <span className={`chevron-icon ${sourcesVisible ? "chevron-open" : ""}`}>
+                      <IconChevronRight />
+                    </span>
+                  </button>
+
+                  {sourcesVisible && (
+                    <div className="sources-grid">
+                      {currentSources.map((s, i) => (
+                        <a
+                          key={i}
+                          href={s.url || s.link || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="source-grid-card"
+                        >
+                          <div className="source-grid-header">
+                            <img
+                              src={getFavicon(s.url || s.link || "")}
+                              alt=""
+                              width="14"
+                              height="14"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                            />
+                            <span className="source-grid-domain">{getDomain(s.url || s.link || s.title || "")}</span>
+                            <span className="source-grid-idx">{i + 1}</span>
+                          </div>
+                          <p className="source-grid-title">{s.title || "Source"}</p>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )} */}
+              
                 <div className="messages-list">
                   {messages.map((msg, idx) => (
                     <div key={idx} className={`message-block message-${msg.role}`}>
@@ -615,7 +858,7 @@ const Dashboard = () => {
                               <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
                               <circle cx="16" cy="16" r="2.5" fill="#fff" />
                             </svg>
-                            <span>Purplexity</span>
+                            <span>Perplexity</span>
                             {idx === messages.length - 1 && isSubmitting && (
                               <span className="streaming-dot" />
                             )}
@@ -650,7 +893,7 @@ const Dashboard = () => {
 
                           <div className="assistant-content">
                             {msg.content ? (
-                              <p className="assistant-text">{renderMarkdown(msg.content)}</p>
+                              <div className="assistant-text">{renderRichContent(msg.content, msg.sources)}</div>
                             ) : (
                               <div className="skeleton-lines">
                                 <div className="skeleton-line" style={{ width: "85%" }} />
@@ -727,37 +970,71 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Sources sidebar */}
               {currentSources.length > 0 && (
                 <aside className="sources-panel">
-                  <p className="sources-panel-heading">Sources</p>
-                  <div className="sources-list">
-                    {currentSources.map((s, i) => (
-                      <a
-                        key={i}
-                        href={s.url || s.link || "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="source-card"
-                      >
-                        <div className="source-card-header">
-                          <img
-                            src={getFavicon(s.url || s.link || "")}
-                            alt=""
-                            width="14"
-                            height="14"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                          />
-                          <span className="source-domain">{getDomain(s.url || s.link || s.title || "")}</span>
-                          <span className="source-idx">{i + 1}</span>
-                        </div>
-                        <p className="source-title">{s.title || "Source"}</p>
-                        {s.content && (
-                          <p className="source-snippet">{s.content.slice(0, 100)}…</p>
-                        )}
-                      </a>
-                    ))}
-                  </div>
+                  {/* <p className="sources-panel-heading">Sources</p> */}
+                  <button
+                    className="sources-toggle-btn"
+                    onClick={() => setSourcesVisible(v => !v)}
+                  >
+                    <IconGlobe />
+                    <span>Sources</span>
+
+                    <span className="sources-count-badge">
+                      {currentSources.length}
+                    </span>
+
+                    <span
+                      className={`chevron-icon ${
+                        sourcesVisible ? "chevron-open" : ""
+                      }`}
+                    >
+                      <IconChevronRight />
+                    </span>
+                  </button>
+                  {sourcesVisible && (
+                    <div className="sources-panel-list">
+                      {currentSources.map((s, i) => (
+                        <a
+                          key={i}
+                          href={s.url || s.link || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="sources-panel-card"
+                        >
+                          <div className="sources-panel-card-header">
+                            <img
+                              src={getFavicon(s.url || s.link || "")}
+                              alt=""
+                              width="14"
+                              height="14"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none"
+                              }}
+                            />
+
+                            <span className="sources-panel-domain">
+                              {getDomain(s.url || s.link || s.title || "")}
+                            </span>
+
+                            <span className="sources-panel-idx">
+                              {i + 1}
+                            </span>
+                          </div>
+
+                          <p className="sources-panel-title">
+                            {s.title || "Source"}
+                          </p>
+
+                          {s.content && (
+                            <p className="sources-panel-snippet">
+                              {s.content.slice(0, 100)}…
+                            </p>
+                          )}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </aside>
               )}
             </div>
@@ -1143,21 +1420,6 @@ const Dashboard = () => {
         .suggestion-chip svg:last-child { margin-left: auto; opacity: 0.4; }
 
         /* ── Chat view ── */
-        .chat-layout {
-          display: flex;
-          max-width: 1100px;
-          margin: 0 auto;
-          padding: 0 24px;
-          gap: 32px;
-          min-height: calc(100vh - 52px);
-        }
-        .chat-main {
-          flex: 1;
-          min-width: 0;
-          display: flex;
-          flex-direction: column;
-          padding-bottom: 24px;
-        }
         .messages-list {
           flex: 1;
           padding: 28px 0 16px;
@@ -1340,89 +1602,6 @@ const Dashboard = () => {
           margin-bottom: 12px;
         }
 
-        /* ── Sources panel ── */
-        .sources-panel {
-          width: 280px;
-          flex-shrink: 0;
-          padding: 28px 0;
-          position: sticky;
-          top: 0;
-          height: fit-content;
-        }
-        .sources-panel-heading {
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #44445a;
-          margin: 0 0 12px;
-        }
-        .sources-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .source-card {
-          display: block;
-          padding: 11px 12px;
-          background: #111118;
-          border: 1px solid #1a1a28;
-          border-radius: 10px;
-          text-decoration: none;
-          transition: border-color 0.12s, background 0.12s;
-        }
-        .source-card:hover {
-          border-color: #20b8a4;
-          background: #13131e;
-        }
-        .source-card-header {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-bottom: 5px;
-        }
-        .source-domain {
-          font-size: 11px;
-          color: #6b6b80;
-          flex: 1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .source-idx {
-          font-size: 10px;
-          font-weight: 600;
-          color: #20b8a4;
-          background: rgba(32, 184, 164, 0.1);
-          width: 16px;
-          height: 16px;
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .source-title {
-          font-size: 12px;
-          color: #b0b0c8;
-          margin: 0 0 4px;
-          line-height: 1.4;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-        .source-snippet {
-          font-size: 11px;
-          color: #44445a;
-          margin: 0;
-          line-height: 1.5;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-
         /* ── Loading state ── */
         .dash-loading {
           height: 100vh;
@@ -1442,14 +1621,6 @@ const Dashboard = () => {
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ── Responsive ── */
-        @media (max-width: 768px) {
-          .sidebar { position: fixed; top: 0; left: 0; height: 100vh; z-index: 50; }
-          .sidebar-closed { width: 0; }
-          .sources-panel { display: none; }
-          .chat-layout { padding: 0 16px; gap: 0; }
-          .home-screen { padding: 40px 16px 24px; }
-          .home-heading { font-size: 24px; }
-        }
 
         .btn-primary {
           padding: 10px 20px;

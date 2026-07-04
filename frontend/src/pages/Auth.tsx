@@ -34,10 +34,10 @@ export const Auth = () => {
             <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
             <circle cx="16" cy="16" r="2.5" fill="#fff" />
           </svg>
-          <span className="auth-logo-text">Purplexity</span>
+          <span className="auth-logo-text">Perplexity</span>
         </div>
 
-        <h1 className="auth-heading">Sign in to Purplexity</h1>
+        <h1 className="auth-heading">Sign in to Perplexity</h1>
         <p className="auth-sub">Search the web with AI. Your conversations, saved.</p>
 
         {errorMessage && (
@@ -72,7 +72,7 @@ export const Auth = () => {
         </div>
 
         <p className="auth-footer">
-          By continuing, you agree to Purplexity's Terms and Privacy Policy.
+          By continuing, you agree to Perplexity's Terms and Privacy Policy.
         </p>
       </div>
 

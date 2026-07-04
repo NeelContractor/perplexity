@@ -13,7 +13,7 @@ const openAIClient = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   defaultHeaders: {
     "HTTP-Referer": process.env.FRONTEND_URL || "http://localhost:5173",
-    "X-Title": "Purplexity",
+    "X-Title": "Perplexity",
   },
 });
 const OPENROUTER_MODEL =
@@ -31,113 +31,131 @@ function sseEvent(event: string, data: object) {
 
 export const search = new Elysia({ name: "search" })
   .use(requireAuth)
-
-  // POST /perplexity-ask
-  // Main route — web search + LLM stream, saves to DB
   .post(
     "/perplexity-ask",
-    async function* ({ body, user, set }) {
+    async ({ body, user, set }) => {
       const { query, conversationId } = body;
       const userId = user!.id;
+      const encoder = new TextEncoder();
 
-      set.headers["content-type"] = "text/event-stream";
-      set.headers["cache-control"] = "no-cache";
-      set.headers["connection"] = "keep-alive";
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (event: string, data: object) => {
+            controller.enqueue(encoder.encode(sseEvent(event, data)));
+          };
 
-      try {
-        // Step 1 — Resolve or create conversation
-        let convo = conversationId
-          ? await prisma.conversation.findFirst({
-              where: { id: conversationId, userId },
-            })
-          : null;
+          try {
+            let convo = conversationId
+              ? await prisma.conversation.findFirst({ where: { id: conversationId, userId } })
+              : null;
 
-        if (!convo) {
-          convo = await prisma.conversation.create({
-            data: {
-              userId,
-              title: query.slice(0, 80),
-            },
-          });
-        }
+            if (!convo) {
+              convo = await prisma.conversation.create({
+                data: { userId, title: query.slice(0, 80) },
+              });
+            }
 
-        yield sseEvent("conversation", { conversationId: convo.id });
+            send("conversation", { conversationId: convo.id });
 
-        // Step 2 — Save user message
-        await prisma.message.create({
-          data: {
-            conversationId: convo.id,
-            role: "user",
-            content: query,
-          },
-        });
+            await prisma.message.create({
+              data: { conversationId: convo.id, role: "user", content: query },
+            });
 
-        // Step 3 — Web search
-        const webResponse = await tavilyClient.search(query, {
-          searchDepth: "advanced",
-        });
-        const webResults = webResponse.results;
-        yield sseEvent("sources", { sources: webResults });
+            const webResponse = await tavilyClient.search(query, { searchDepth: "advanced" });
+            const webResults = webResponse.results;
+            send("sources", { sources: webResults });
 
-        // Step 4 — Build prompt
-        const prompt = PROMPT_TEMPLATE.replace(
-          "{{WEB_RESULT}}",
-          JSON.stringify(webResults),
-        ).replace("{{USER_QUERY}}", query);
+            const prompt = PROMPT_TEMPLATE
+              .replace("{{WEB_RESULT}}", JSON.stringify(webResults))
+              .replace("{{USER_QUERY}}", query);
 
-        // Step 5 — Load conversation history for multi-turn context
-        const history = await prisma.message.findMany({
-          where: { conversationId: convo.id },
-          orderBy: { createdAt: "asc" },
-          take: 10,
-          select: { role: true, content: true },
-        });
+            const history = await prisma.message.findMany({
+              where: { conversationId: convo.id },
+              orderBy: { createdAt: "asc" },
+              take: 10,
+              select: { role: true, content: true },
+            });
 
-        // Step 6 — Stream LLM response
-        const stream = await openAIClient.chat.completions.create({
-          model: OPENROUTER_MODEL,
-          stream: true,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...history.map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            })),
-            { role: "user", content: prompt },
-          ],
-        });
+            const llmStream = await openAIClient.chat.completions.create({
+              model: OPENROUTER_MODEL,
+              stream: true,
+              messages: [
+                { role: "system", content: SYSTEM_PROMPT },
+                ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+                { role: "user", content: prompt },
+              ],
+            });
 
-        // Step 7 — Forward chunks + accumulate full response
-        let fullResponse = "";
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta?.content;
-          if (delta) {
-            fullResponse += delta;
-            yield sseEvent("delta", { text: delta });
+            // Step 7 — Forward only the <answer>...</answer> content, stripping tags
+            let rawBuffer = "";
+            let cleanAnswer = "";
+            let emittedLength = 0;
+            let state: "before" | "in" | "done" = "before";
+
+            const OPEN_TAG = "<answer>";
+            const CLOSE_TAG = "</answer>";
+
+            for await (const chunk of llmStream) {
+              if (state === "done") break;
+
+              const delta = chunk.choices[0]?.delta?.content;
+              if (!delta) continue;
+
+              rawBuffer += delta;
+
+              if (state === "before") {
+                const idx = rawBuffer.indexOf(OPEN_TAG);
+                if (idx === -1) continue;
+                rawBuffer = rawBuffer.slice(idx + OPEN_TAG.length);
+                state = "in";
+              }
+
+              if (state === "in") {
+                const endIdx = rawBuffer.indexOf(CLOSE_TAG);
+                if (endIdx !== -1) {
+                  cleanAnswer = rawBuffer.slice(0, endIdx).trim();
+                  const newText = cleanAnswer.slice(emittedLength);
+                  if (newText) send("delta", { text: newText });
+                  state = "done";
+                } else {
+                  const safeLength = Math.max(0, rawBuffer.length - (CLOSE_TAG.length - 1));
+                  if (safeLength > emittedLength) {
+                    const newText = rawBuffer.slice(emittedLength, safeLength);
+                    send("delta", { text: newText });
+                    emittedLength = safeLength;
+                    cleanAnswer = rawBuffer.slice(0, safeLength);
+                  }
+                }
+              }
+            }
+
+            const fullResponse = cleanAnswer;
+
+            await Promise.all([
+              prisma.message.create({
+                data: { conversationId: convo.id, role: "assistant", content: fullResponse, sources: webResults },
+              }),
+              prisma.conversation.update({ where: { id: convo.id }, data: { updatedAt: new Date() } }),
+            ]);
+
+            send("done", { conversationId: convo.id });
+          } catch (err) {
+            console.error("perplexity-ask error:", err);
+            send("error", { message: "Something went wrong" });
+          } finally {
+            controller.close();
           }
-        }
+        },
+      });
 
-        // Step 8 — Save assistant message + bump conversation updatedAt
-        await Promise.all([
-          prisma.message.create({
-            data: {
-              conversationId: convo.id,
-              role: "assistant",
-              content: fullResponse,
-              sources: webResults,
-            },
-          }),
-          prisma.conversation.update({
-            where: { id: convo.id },
-            data: { updatedAt: new Date() },
-          }),
-        ]);
-
-        yield sseEvent("done", { conversationId: convo.id });
-      } catch (err) {
-        console.error("perplexity-ask error:", err);
-        yield sseEvent("error", { message: "Something went wrong" });
-      }
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+        },
+      });
     },
     {
       body: t.Object({
@@ -146,6 +164,7 @@ export const search = new Elysia({ name: "search" })
       }),
     },
   )
+
 
   // POST /perplexity-ask-followups
   // Returns 3 follow-up question suggestions for a conversation

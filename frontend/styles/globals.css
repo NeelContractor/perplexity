@@ -118,3 +118,34 @@
     @apply bg-background text-foreground;
   }
 }
+
+.citation-link {
+  color: #20b8a4;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0 1px;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+.citation-link:hover { background: rgba(32, 184, 164, 0.15); }
+.citation-link-disabled {
+  color: #44445a;
+  cursor: default;
+}
+
+.sources-toggle-btn {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin: 12px 0 0;
+  background: #111118;
+  border: 1px solid #1a1a28;
+  border-radius: 20px;
+  color: #9090b0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.sources-toggle-btn:hover { border-color: #20b8a4; color: #20b8a4; }
