@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { createClient } from "../lib/client"
+import logo from "../public/ai_logo.svg"
 
 export const Auth = () => {
   const supabase = createClient()
@@ -29,11 +30,13 @@ export const Auth = () => {
       <div className="auth-card">
         {/* Logo */}
         <div className="auth-logo">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <circle cx="16" cy="16" r="16" fill="#20b8a4" />
-            <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-            <circle cx="16" cy="16" r="2.5" fill="#fff" />
-          </svg>
+          <img
+              src={logo}
+              alt="Logo"
+              width={40}
+              height={40}
+              className="w-10 h-10"
+            />
           <span className="auth-logo-text">Perplexity</span>
         </div>
 

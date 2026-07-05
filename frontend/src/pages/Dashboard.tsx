@@ -1,5 +1,6 @@
 import type { FormEvent } from "react"
 import { flushSync } from "react-dom"
+import logo from "../public/ai_logo.svg"
 import { createParser, type EventSourceMessage } from "eventsource-parser";
 import type { User } from "@supabase/supabase-js"
 import { useEffect, useRef, useState, useCallback } from "react"
@@ -648,11 +649,13 @@ const Dashboard = () => {
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
-              <circle cx="16" cy="16" r="16" fill="#20b8a4" />
-              <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-              <circle cx="16" cy="16" r="2.5" fill="#fff" />
-            </svg>
+            <img
+              src={logo}
+              alt="Logo"
+              width={40}
+              height={40}
+              className="w-10 h-10"
+            />
             <span className="sidebar-logo-label">Perplexity</span>
           </div>
           <button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Close sidebar">
@@ -722,11 +725,13 @@ const Dashboard = () => {
           )}
           {!sidebarOpen && (
             <div className="topbar-logo">
-              <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-                <circle cx="16" cy="16" r="16" fill="#20b8a4" />
-                <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-                <circle cx="16" cy="16" r="2.5" fill="#fff" />
-              </svg>
+              <img
+                src={logo}
+                alt="Logo"
+                width={40}
+                height={40}
+                className="w-10 h-10"
+              />
               <span>Perplexity</span>
             </div>
           )}
@@ -745,11 +750,13 @@ const Dashboard = () => {
             <div className="home-screen">
               <div className="home-hero">
                 <div className="home-logo-mark">
-                  <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
-                    <circle cx="16" cy="16" r="16" fill="#20b8a4" />
-                    <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-                    <circle cx="16" cy="16" r="2.5" fill="#fff" />
-                  </svg>
+                  <img
+                    src={logo}
+                    alt="Logo"
+                    width={40}
+                    height={40}
+                    className="w-10 h-10"
+                  />
                 </div>
                 <h1 className="home-heading">Where knowledge begins</h1>
                 <p className="home-sub">Ask anything. Get answers backed by the web.</p>
@@ -802,49 +809,6 @@ const Dashboard = () => {
             /* ── Chat view ── */
             <div className="chat-layout">
               <div className="chat-main">
-              {/* {currentSources.length > 0 && (
-                <>
-                  <button
-                    className="sources-toggle-btn"
-                    onClick={() => setSourcesVisible(v => !v)}
-                  >
-                    <IconGlobe />
-                    <span>Sources</span>
-                    <span className="sources-count-badge">{currentSources.length}</span>
-                    <span className={`chevron-icon ${sourcesVisible ? "chevron-open" : ""}`}>
-                      <IconChevronRight />
-                    </span>
-                  </button>
-
-                  {sourcesVisible && (
-                    <div className="sources-grid">
-                      {currentSources.map((s, i) => (
-                        <a
-                          key={i}
-                          href={s.url || s.link || "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="source-grid-card"
-                        >
-                          <div className="source-grid-header">
-                            <img
-                              src={getFavicon(s.url || s.link || "")}
-                              alt=""
-                              width="14"
-                              height="14"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                            />
-                            <span className="source-grid-domain">{getDomain(s.url || s.link || s.title || "")}</span>
-                            <span className="source-grid-idx">{i + 1}</span>
-                          </div>
-                          <p className="source-grid-title">{s.title || "Source"}</p>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )} */}
-              
                 <div className="messages-list">
                   {messages.map((msg, idx) => (
                     <div key={idx} className={`message-block message-${msg.role}`}>
@@ -853,11 +817,13 @@ const Dashboard = () => {
                       ) : (
                         <div className="assistant-block">
                           <div className="assistant-label">
-                            <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
-                              <circle cx="16" cy="16" r="16" fill="#20b8a4" />
-                              <path d="M10 16c0-3.314 2.686-6 6-6s6 2.686 6 6-2.686 6-6 6" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
-                              <circle cx="16" cy="16" r="2.5" fill="#fff" />
-                            </svg>
+                          <img
+                            src={logo}
+                            alt="Logo"
+                            width={40}
+                            height={40}
+                            className="w-10 h-10"
+                          />
                             <span>Perplexity</span>
                             {idx === messages.length - 1 && isSubmitting && (
                               <span className="streaming-dot" />
@@ -972,7 +938,6 @@ const Dashboard = () => {
 
               {currentSources.length > 0 && (
                 <aside className="sources-panel">
-                  {/* <p className="sources-panel-heading">Sources</p> */}
                   <button
                     className="sources-toggle-btn"
                     onClick={() => setSourcesVisible(v => !v)}
@@ -1093,7 +1058,7 @@ const Dashboard = () => {
           align-items: center;
           gap: 8px;
           padding: 9px 14px;
-          background: #20b8a4;
+          background: #22B8CD;
           color: #fff;
           border: none;
           border-radius: 9px;
@@ -1199,7 +1164,7 @@ const Dashboard = () => {
           width: 28px;
           height: 28px;
           border-radius: 50%;
-          background: #20b8a4;
+          background: #22B8CD;
           color: #fff;
           font-size: 12px;
           font-weight: 600;
@@ -1262,7 +1227,7 @@ const Dashboard = () => {
           align-items: center;
           gap: 6px;
           padding: 6px 12px;
-          background: #20b8a4;
+          background: #22B8CD;
           color: #fff;
           border: none;
           border-radius: 7px;
@@ -1335,7 +1300,7 @@ const Dashboard = () => {
         }
         .search-box {
           background: #111118;
-          border: 1px solid #1e1e2e;
+          border: 1px solid #22B8CD;
           border-radius: 16px;
           padding: 16px 16px 12px;
           transition: border-color 0.15s, box-shadow 0.15s;
@@ -1377,7 +1342,7 @@ const Dashboard = () => {
           height: 32px;
           border-radius: 8px;
           border: none;
-          background: #1e1e2e;
+          background: #22B8CD;
           color: #44445a;
           cursor: pointer;
           display: flex;
@@ -1386,7 +1351,7 @@ const Dashboard = () => {
           transition: background 0.15s, color 0.15s;
         }
         .search-send-btn.active {
-          background: #20b8a4;
+          background: #22B8CD;
           color: #fff;
         }
         .search-send-btn.active:hover { background: #1da898; }
@@ -1414,7 +1379,7 @@ const Dashboard = () => {
         }
         .suggestion-chip:hover {
           background: #14141f;
-          border-color: #20b8a4;
+          border-color: #22B8CD;
           color: #e8e8f0;
         }
         .suggestion-chip svg:last-child { margin-left: auto; opacity: 0.4; }
@@ -1447,7 +1412,7 @@ const Dashboard = () => {
           gap: 7px;
           font-size: 13px;
           font-weight: 500;
-          color: #20b8a4;
+          color: #22B8CD;
         }
         .streaming-dot {
           display: inline-block;
@@ -1498,7 +1463,7 @@ const Dashboard = () => {
           font-family: 'SF Mono', 'Fira Code', monospace;
           font-size: 12.5px;
           background: #1a1a28;
-          color: #20b8a4;
+          color: #22B8CD;
           padding: 1px 5px;
           border-radius: 4px;
         }
@@ -1568,7 +1533,7 @@ const Dashboard = () => {
           transition: border-color 0.15s, box-shadow 0.15s;
         }
         .chat-input-box:focus-within {
-          border-color: #20b8a4;
+          border-color: #22B8CD;
           box-shadow: 0 0 0 3px rgba(32, 184, 164, 0.1);
         }
         .chat-textarea {

@@ -52,7 +52,7 @@ body::before {
 
 
 .citation-link {
-  color: #20b8a4;
+  color: #22B8CD;
   text-decoration: none;
   font-weight: 600;
   padding: 0 1px;
@@ -124,10 +124,10 @@ body::before {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.sources-toggle-btn:hover { border-color: #20b8a4; background: #14141f; }
+.sources-toggle-btn:hover { border-color: #22B8CD; background: #14141f; color: #22B8CD }
 .sources-count-badge {
   background: rgba(32, 184, 164, 0.15);
-  color: #20b8a4;
+  /* color: #22B8CD; */
   font-size: 11px;
   font-weight: 600;
   padding: 1px 7px;
@@ -136,6 +136,7 @@ body::before {
 .chevron-icon {
   display: flex;
   transition: transform 0.2s ease;
+  /* color: #22B8CD; */
 }
 
 .chevron-icon.chevron-open {
@@ -235,6 +236,7 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 12px;
 }
 .sources-panel-card {
   display: block;
@@ -245,7 +247,7 @@ body::before {
   text-decoration: none;
   transition: border-color 0.12s, background 0.12s;
 }
-.sources-panel-card:hover { border-color: #20b8a4; background: #13131e; }
+.sources-panel-card:hover { border-color: #22B8CD; background: #13131e; }
 .sources-panel-card-header {
   display: flex;
   align-items: center;
@@ -263,7 +265,7 @@ body::before {
 .sources-panel-idx {
   font-size: 10px;
   font-weight: 600;
-  color: #20b8a4;
+  color: #22B8CD;
   background: rgba(32, 184, 164, 0.1);
   width: 16px;
   height: 16px;
