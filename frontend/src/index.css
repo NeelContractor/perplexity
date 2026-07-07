@@ -295,3 +295,34 @@ body::before {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 10px 0;
+  border: 1px solid #1a1a28;
+  border-radius: 10px;
+}
+.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13.5px;
+}
+.md-table th, .md-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #1a1a28;
+  vertical-align: top;
+}
+.md-table th {
+  background: #111118;
+  color: #e8e8f0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.md-table td { color: #c8c8e0; }
+.md-table tr:last-child td { border-bottom: none; }
+.md-hr {
+  border: none;
+  border-top: 1px solid #1a1a28;
+  margin: 12px 0;
+}

@@ -1,4 +1,5 @@
-import type { FormEvent } from "react"
+import type { FormEvent, ReactNode, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
+import type React from "react"   
 import { flushSync } from "react-dom"
 import logo from "../public/ai_logo.svg"
 import { createParser, type EventSourceMessage } from "eventsource-parser";
@@ -121,7 +122,7 @@ function renderMarkdown(text: string, sources?: Source[]) {
   return lines.map((line, i) => {
     const parts: React.ReactNode[] = []
     // Added citation patterns: [1] and 【1】
-    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(\d+)\]|【(\d+)】)/g
+    const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[\[(\d+)\]\]\((https?:\/\/[^\s)]+)\)|\[(\d+)\]|【(\d+)】)/g
     let last = 0
     let match
     while ((match = regex.exec(line)) !== null) {
@@ -165,8 +166,23 @@ function renderMarkdown(text: string, sources?: Source[]) {
 }
 
 function renderInline(line: string, sources?: Source[], keyPrefix: string | number = 0) {
+  // Handle HTML lists inline (e.g. inside table cells) — render as bullet + <br/>
+  if (/<li>/i.test(line)) {
+    const items = [...line.matchAll(/<li>([\s\S]*?)<\/li>/gi)].map(m => (m[1] ?? "").trim())
+    const nodes: React.ReactNode[] = []
+    items.forEach((item, idx) => {
+      if (idx > 0) nodes.push(<br key={`br-${keyPrefix}-${idx}`} />)
+      nodes.push(
+        <span key={`li-${keyPrefix}-${idx}`}>
+          • {renderInline(item, sources, `${keyPrefix}-li-${idx}`)}
+        </span>
+      )
+    })
+    return nodes
+  }
+
   const parts: React.ReactNode[] = []
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(\d+)\]|【(\d+)】)/g
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[\[(\d+)\]\]\((https?:\/\/[^\s)]+)\)|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\[(\d+)\]|【(\d+)】)/g
   let last = 0
   let match
   let i = 0
@@ -179,8 +195,22 @@ function renderInline(line: string, sources?: Source[], keyPrefix: string | numb
       parts.push(<em key={key}>{match[3]}</em>)
     } else if (match[4]) {
       parts.push(<code key={key} className="inline-code">{match[4]}</code>)
-    } else if (match[5] || match[6]) {
-      const num = parseInt(match[5] || match[6] || "0", 10)
+    } else if (match[5] && match[6]) {
+      // [[1]](url) style citation
+      parts.push(
+        <a key={key} href={match[6]} target="_blank" rel="noopener noreferrer" className="citation-link">
+          [{match[5]}]
+        </a>
+      )
+    } else if (match[7] && match[8]) {
+      // generic [label](url) markdown link — covers autolinked <url> too
+      parts.push(
+        <a key={key} href={match[8]} target="_blank" rel="noopener noreferrer" className="citation-link">
+          {match[7]}
+        </a>
+      )
+    } else if (match[9] || match[10]) {
+      const num = parseInt(match[9] || match[10] || "0", 10)
       const source = sources?.[num - 1]
       const href = source?.url || source?.link
       parts.push(
@@ -199,17 +229,43 @@ function renderInline(line: string, sources?: Source[], keyPrefix: string | numb
   return parts.length ? parts : [line]
 }
 
+function preprocessModelArtifacts(text: string): string {
+  return text
+    .replace(/<sup>\s*<\/sup>/gi, "")
+    .replace(/<sup>([\s\S]*?)<\/sup>/gi, (_, inner) => inner)
+    .replace(/<(https?:\/\/[^\s>]+)>/gi, (_, url) => `[${url}](${url})`)
+    // Convert <ul>/<ol> + <li> blocks into markdown-style bullets
+    .replace(/<\/?(ul|ol)>/gi, "")
+    .replace(/<li>([\s\S]*?)<\/li>/gi, (_, inner) => `\n- ${inner.trim()}`)
+}
+
 function renderRichContent(text: string, sources?: Source[]) {
+  text = preprocessModelArtifacts(text)
   const blocks: React.ReactNode[] = []
   const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g
   let lastIndex = 0
   let match: RegExpExecArray | null
   let blockKey = 0
 
+  // Strip literal <br> tags — treat them as newlines within a cell/line
+  const normalizeBreaks = (s: string) => s.replace(/<br\s*\/?>/gi, "\n")
+
+  const isTableSeparator = (line: string) =>
+    /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(line.trim())
+
+  const parseTableRow = (line: string) =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim())
+
   const renderTextChunk = (chunk: string, key: number) => {
-    const lines = chunk.split("\n")
+    const lines = normalizeBreaks(chunk).split("\n")
     const elements: React.ReactNode[] = []
     let listBuffer: string[] = []
+    let i = 0
 
     const flushList = () => {
       if (listBuffer.length > 0) {
@@ -224,31 +280,73 @@ function renderRichContent(text: string, sources?: Source[]) {
       }
     }
 
-    lines.forEach((line, li) => {
+    while (i < lines.length) {
+      const line = lines[i] ?? ""
       const trimmed = line.trim()
+
+      // ── Table detection: a row starting with | followed by a separator row ──
+      if (trimmed.startsWith("|") && lines[i + 1] && isTableSeparator(lines[i + 1] ?? "")) {
+        flushList()
+        const headerCells = parseTableRow(trimmed)
+        i += 2 // skip header + separator
+        const bodyRows: string[][] = []
+        while (i < lines.length && (lines[i] ?? "").trim().startsWith("|")) {
+          bodyRows.push(parseTableRow(lines[i] ?? ""))
+          i++
+        }
+        elements.push(
+          <div className="md-table-wrap" key={`table-${key}-${elements.length}`}>
+            <table className="md-table">
+              <thead>
+                <tr>
+                  {headerCells.map((cell, ci) => (
+                    <th key={ci}>{renderInline(cell, sources, `${key}-th-${ci}`)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => (
+                  <tr key={ri}>
+                    {row.map((cell, ci) => (
+                      <td key={ci}>{renderInline(cell, sources, `${key}-td-${ri}-${ci}`)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+        continue
+      }
+
       const bulletMatch = trimmed.match(/^[-*]\s+(.*)/)
-      if (bulletMatch) {
+      if (bulletMatch && trimmed !== "---") {
         listBuffer.push(bulletMatch[1] ?? "")
-        return
+        i++
+        continue
       }
       flushList()
-      if (trimmed === "") {
-        elements.push(<div key={`sp-${key}-${li}`} style={{ height: 6 }} />)
+
+      if (trimmed === "" ) {
+        elements.push(<div key={`sp-${key}-${i}`} style={{ height: 6 }} />)
+      } else if (/^-{3,}$/.test(trimmed)) {
+        elements.push(<hr className="md-hr" key={`hr-${key}-${i}`} />)
       } else if (/^#{1,3}\s+/.test(trimmed)) {
         const headingText = trimmed.replace(/^#{1,3}\s+/, "")
         elements.push(
-          <h4 className="md-heading" key={`h-${key}-${li}`}>
-            {renderInline(headingText, sources, `${key}-${li}`)}
+          <h4 className="md-heading" key={`h-${key}-${i}`}>
+            {renderInline(headingText, sources, `${key}-${i}`)}
           </h4>
         )
       } else {
         elements.push(
-          <p className="md-para" key={`p-${key}-${li}`}>
-            {renderInline(line, sources, `${key}-${li}`)}
+          <p className="md-para" key={`p-${key}-${i}`}>
+            {renderInline(line, sources, `${key}-${i}`)}
           </p>
         )
       }
-    })
+      i++
+    }
     flushList()
     return elements
   }
@@ -1419,7 +1517,7 @@ const Dashboard = () => {
           width: 6px;
           height: 6px;
           border-radius: 50%;
-          background: #20b8a4;
+          background: #22B8CD;
           animation: pulse 1s ease-in-out infinite;
         }
         @keyframes pulse {
@@ -1513,7 +1611,7 @@ const Dashboard = () => {
         }
         .followup-btn:hover {
           background: #111118;
-          border-color: #20b8a4;
+          border-color: #22B8CD;
           color: #e8e8f0;
         }
         .followup-btn svg { flex-shrink: 0; color: #44445a; }
